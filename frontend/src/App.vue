@@ -69,15 +69,15 @@
             :key="channel.num"
             class="channel-card"
             :class="{
-            'offline': !channel.host,
-            'rebooting': channel.rebooting
-          }"
+        'offline': !channel.host,
+        'rebooting': channel.rebooting
+      }"
             @click="rebootDevice(channel)"
         >
           <div class="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-3xl overflow-hidden">
             <img
                 v-if="channel.img"
-                :src="`/images/${channel.img}.png`"
+                :src="`/img/${channel.img}.png`"
                 :alt="channel.name"
                 class="w-full h-full object-cover"
                 @error="handleImageError"
@@ -143,16 +143,67 @@
     <!-- Admin View -->
     <main v-else class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
       <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div class="flex justify-between items-center mb-6">
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-6">
           <h2 class="text-2xl font-bold text-gray-900">⚙️ Редактирование конфигурации</h2>
-          <button
-              @click="saveAllConfigs"
-              :disabled="isSaving"
-              class="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-all shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <span v-if="isSaving">⏳ Сохранение...</span>
-            <span v-else>💾 Сохранить всё</span>
-          </button>
+          <div class="flex flex-wrap gap-2">
+            <!-- Кнопка скачивания изображений -->
+            <button
+                @click="downloadImages"
+                :disabled="isDownloading"
+                class="px-5 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 transition-all shadow-lg shadow-purple-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            >
+              <span v-if="isDownloading" class="inline-block animate-spin">⟳</span>
+              <span v-else>🖼️</span>
+              {{ isDownloading ? 'Загрузка...' : 'Скачать изображения' }}
+            </button>
+
+            <button
+                @click="saveAllConfigs"
+                :disabled="isSaving"
+                class="px-5 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-all shadow-lg shadow-green-200 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span v-if="isSaving">⏳ Сохранение...</span>
+              <span v-else>💾 Сохранить всё</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Статус загрузки изображений -->
+        <div v-if="downloadStatus" class="mb-6 bg-purple-50 rounded-lg p-4 border border-purple-200">
+          <div class="flex items-center justify-between">
+            <div class="flex-1">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-sm font-medium text-gray-700">
+                  {{ isDownloading ? '⏳ Загрузка изображений...' : '📊 Статус изображений' }}
+                </span>
+                <span class="text-sm font-semibold text-purple-600">
+                  {{ downloadStatus.icons.progress }}%
+                </span>
+              </div>
+              <div class="w-full bg-gray-200 rounded-full h-2">
+                <div
+                    class="h-2 rounded-full transition-all duration-500 bg-purple-600"
+                    :style="{ width: downloadStatus.icons.progress + '%' }"
+                ></div>
+              </div>
+              <div class="flex justify-between mt-1 text-xs text-gray-500">
+                <span>📁 Загружено: {{ downloadStatus.icons.count }}</span>
+                <span>📋 Всего: {{ downloadStatus.icons.totalNeeded }}</span>
+                <span>💾 Размер: {{ downloadStatus.icons.size }}</span>
+              </div>
+            </div>
+            <div v-if="isDownloading" class="ml-4 text-purple-600 text-2xl animate-spin">
+              ⟳
+            </div>
+          </div>
+          <div v-if="downloadStatus.stats" class="mt-2 text-xs text-gray-600 border-t border-purple-200 pt-2">
+            <span class="text-green-600">✅ Загружено: {{ downloadStatus.stats.success }}</span>
+            <span v-if="downloadStatus.stats.fail > 0" class="text-red-600 ml-3">
+              ❌ Ошибок: {{ downloadStatus.stats.fail }}
+            </span>
+            <span class="text-gray-400 ml-3">⏭️ Пропущено: {{ downloadStatus.stats.skip }}</span>
+            <span class="ml-3">📅 {{ formatDate(downloadStatus.stats.timestamp) }}</span>
+          </div>
         </div>
 
         <!-- Tabs for admin -->
@@ -346,7 +397,7 @@
 
     <!-- Toast -->
     <transition name="toast">
-      <div v-if="message" :class="messageType === 'success' ? 'toast-success' : 'toast-error'">
+      <div v-if="message" :class="messageType === 'success' ? 'toast-success' : messageType === 'warning' ? 'toast-warning' : 'toast-error'">
         {{ message }}
       </div>
     </transition>
@@ -364,6 +415,8 @@ const adminActiveTab = ref('channels');
 const message = ref('');
 const messageType = ref('success');
 const isSaving = ref(false);
+const isDownloading = ref(false);
+const downloadStatus = ref(null);
 
 // Основные данные
 const channels = ref([]);
@@ -386,6 +439,19 @@ const adminTabs = [
 const activeChannels = computed(() => {
   return channels.value.filter(ch => ch.host).length;
 });
+
+// ============ Форматирование даты ============
+const formatDate = (timestamp) => {
+  if (!timestamp) return '—';
+  const date = new Date(timestamp);
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
 
 // ============ Загрузка данных ============
 const loadData = async () => {
@@ -432,7 +498,6 @@ const addChannel = () => {
 const deleteChannel = async (index) => {
   if (!confirm('Удалить канал?')) return;
   editedChannels.value.splice(index, 1);
-  // Обновляем номера
   editedChannels.value.forEach((ch, i) => ch.num = i + 1);
 };
 
@@ -450,7 +515,6 @@ const addPbi = () => {
 const deletePbi = async (index) => {
   if (!confirm('Удалить PBI?')) return;
   editedPbis.value.splice(index, 1);
-  // Обновляем номера
   editedPbis.value.forEach((p, i) => p.num = i + 1);
 };
 
@@ -462,18 +526,15 @@ const updatePbiChannels = (index) => {
 // ============ Сохранение (массовое) ============
 const saveAllConfigs = async () => {
   if (isSaving.value) return;
-
   isSaving.value = true;
 
   try {
-    // Подготавливаем данные
     const channelsToSave = editedChannels.value.map(({ rebooting, ...channel }) => channel);
     const pbisToSave = editedPbis.value.map(({ rebooting, channelsString, ...pbi }) => ({
       ...pbi,
       channels: pbi.channels || pbi.channelsString?.split(',').map(s => s.trim()).filter(s => s) || []
     }));
 
-    // Сохраняем все сразу
     await Promise.all([
       axios.put('/api/channels/bulk', channelsToSave),
       axios.put('/api/pbis/bulk', pbisToSave),
@@ -488,6 +549,67 @@ const saveAllConfigs = async () => {
     showMessage(`❌ Ошибка сохранения: ${errorMsg}`, 'error');
   } finally {
     isSaving.value = false;
+  }
+};
+
+// ============ Скачивание изображений ============
+const downloadImages = async () => {
+  if (isDownloading.value) return;
+
+  isDownloading.value = true;
+  showMessage('🔄 Начинаем загрузку изображений...', 'success');
+
+  try {
+    await axios.post('/api/sync-icons');
+
+    // Проверяем статус
+    let attempts = 0;
+    const maxAttempts = 60;
+
+    const checkStatus = setInterval(async () => {
+      attempts++;
+      try {
+        const statusRes = await axios.get('/api/sync-status');
+        downloadStatus.value = statusRes.data;
+
+        if (!statusRes.data.isSyncing || attempts >= maxAttempts) {
+          clearInterval(checkStatus);
+          isDownloading.value = false;
+
+          if (statusRes.data.stats) {
+            const stats = statusRes.data.stats;
+            if (stats.fail === 0 && stats.success > 0) {
+              showMessage(`✅ Все изображения загружены! (${stats.success} шт.)`, 'success');
+            } else if (stats.success > 0 && stats.fail > 0) {
+              showMessage(`⚠️ Загружено: ${stats.success}, ошибок: ${stats.fail}`, 'warning');
+            } else if (stats.fail > 0 && stats.success === 0) {
+              showMessage(`❌ Не удалось загрузить изображения`, 'error');
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Status check error:', error);
+        if (attempts >= maxAttempts) {
+          clearInterval(checkStatus);
+          isDownloading.value = false;
+        }
+      }
+    }, 1500);
+
+  } catch (error) {
+    const errorMsg = error.response?.data?.error || error.message;
+    showMessage(`❌ Ошибка: ${errorMsg}`, 'error');
+    isDownloading.value = false;
+  }
+};
+
+// ============ Загрузка статуса ============
+const loadDownloadStatus = async () => {
+  try {
+    const response = await axios.get('/api/sync-status');
+    downloadStatus.value = response.data;
+  } catch (error) {
+    console.error('Load status error:', error);
   }
 };
 
@@ -527,7 +649,7 @@ const showMessage = (text, type = 'success') => {
   messageType.value = type;
   setTimeout(() => {
     message.value = '';
-  }, 3000);
+  }, 5000);
 };
 
 const handleImageError = (event) => {
@@ -540,12 +662,14 @@ const handleImageError = (event) => {
 watch(activeView, (newVal) => {
   if (newVal === 'admin') {
     resetEdits();
+    loadDownloadStatus();
   }
 });
 
 // ============ Жизненный цикл ============
 onMounted(() => {
   loadData();
+  loadDownloadStatus();
 });
 </script>
 
@@ -576,6 +700,10 @@ onMounted(() => {
 
 .toast-error {
   @apply fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl text-white font-medium z-50 shadow-lg bg-red-500;
+}
+
+.toast-warning {
+  @apply fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl text-white font-medium z-50 shadow-lg bg-orange-500;
 }
 
 .toast-enter-active,
