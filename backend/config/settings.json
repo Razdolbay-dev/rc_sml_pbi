@@ -1,0 +1,9 @@
+{
+  "telnet": {
+    "user": "root",
+    "password": "11",
+    "pbiPassword": "12345",
+    "port": 23,
+    "timeout": 10000
+  }
+}

@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    body {
+        @apply bg-gray-50 text-gray-900;
+    }
+}
+
+@layer components {
+    .channel-card {
+        @apply bg-white rounded-xl border-2 border-gray-200 p-4 text-center cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-green-500 relative;
+    }
+
+    .channel-card.offline {
+        @apply opacity-50 cursor-not-allowed;
+    }
+
+    .channel-card.rebooting {
+        @apply opacity-60 cursor-not-allowed border-orange-400;
+    }
+
+    .pbi-card {
+        @apply bg-white rounded-xl border-2 border-gray-200 p-4 cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-green-500 relative text-left;
+    }
+
+    .pbi-card.rebooting {
+        @apply opacity-60 cursor-not-allowed border-orange-400;
+    }
+
+    .toast-success {
+        @apply fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl text-white font-medium z-50 shadow-lg bg-green-500 animate-slide-up;
+    }
+
+    .toast-error {
+        @apply fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl text-white font-medium z-50 shadow-lg bg-red-500 animate-slide-up;
+    }
+}
