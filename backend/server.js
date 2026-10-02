@@ -540,18 +540,12 @@ function rebootDevice(host, port, user, password, timeout) {
 function rebootPbi(host, port, user, password, timeout) {
     return new Promise((resolve, reject) => {
         const client = new net.Socket();
-        let buffer = '';       // текстовый буфер
-        let state = 'WAIT_LOGIN'; // WAIT_LOGIN → WAIT_PASSWORD → WAIT_SHELL → REBOOTED
+        let buffer = '';
+        let state = 'WAIT_LOGIN';
+        let rebootScheduled = false;  // ← защита от повторной отправки
         let timeoutId;
 
-        // Telnet команды
-        const IAC  = 255;
-        const DONT = 254;
-        const DO   = 253;
-        const WONT = 252;
-        const WILL = 251;
-        const SB   = 250; // Subnegotiation Begin
-        const SE   = 240; // Subnegotiation End
+        const IAC = 255, DONT = 254, DO = 253, WONT = 252, WILL = 251, SB = 250, SE = 240;
 
         const cleanup = () => {
             if (timeoutId) clearTimeout(timeoutId);
@@ -567,66 +561,39 @@ function rebootPbi(host, port, user, password, timeout) {
             console.log(`🔗 Connected to PBI ${host}:${port}`);
         });
 
-        // Парсим входящие данные: отсеиваем Telnet-команды, оставляем текст
         const parseTelnet = (data) => {
             let text = '';
             let i = 0;
-
             while (i < data.length) {
                 const byte = data[i];
-
                 if (byte === IAC) {
                     if (i + 1 >= data.length) break;
                     const cmd = data[i + 1];
-
-                    if (cmd === IAC) {
-                        // Экранированный 255 — это просто байт 255
-                        text += String.fromCharCode(255);
-                        i += 2;
-                    } else if (cmd === DO || cmd === DONT) {
+                    if (cmd === IAC) { text += String.fromCharCode(255); i += 2; }
+                    else if (cmd === DO || cmd === DONT) {
                         if (i + 2 >= data.length) break;
-                        const opt = data[i + 2];
-                        // Отвечаем WONT на DO и DONT
-                        client.write(Buffer.from([IAC, WONT, opt]));
+                        client.write(Buffer.from([IAC, WONT, data[i + 2]]));
                         i += 3;
                     } else if (cmd === WILL || cmd === WONT) {
                         if (i + 2 >= data.length) break;
-                        const opt = data[i + 2];
-                        // Отвечаем DONT на WILL и WONT
-                        client.write(Buffer.from([IAC, DONT, opt]));
+                        client.write(Buffer.from([IAC, DONT, data[i + 2]]));
                         i += 3;
                     } else if (cmd === SB) {
-                        // Пропускаем subnegotiation до IAC SE
                         i += 2;
                         while (i < data.length - 1) {
-                            if (data[i] === IAC && data[i + 1] === SE) {
-                                i += 2;
-                                break;
-                            }
+                            if (data[i] === IAC && data[i + 1] === SE) { i += 2; break; }
                             i++;
                         }
-                    } else {
-                        // Другие команды — пропускаем
-                        i += 2;
-                    }
-                } else if (byte === 0) {
-                    // NULL — пропускаем
-                    i++;
-                } else {
-                    // Обычный символ
-                    text += String.fromCharCode(byte);
-                    i++;
-                }
+                    } else { i += 2; }
+                } else if (byte === 0) { i++; }
+                else { text += String.fromCharCode(byte); i++; }
             }
-
             return text;
         };
 
         client.on('data', (data) => {
             const text = parseTelnet(data);
-
-            if (!text) return; // Только Telnet-команды, ничего полезного
-
+            if (!text) return;
             buffer += text;
             console.log(`📨 [PBI ${host}][${state}]:`, JSON.stringify(text));
 
@@ -650,12 +617,15 @@ function rebootPbi(host, port, user, password, timeout) {
                     break;
 
                 case 'WAIT_SHELL':
-                    // PBI показывает: "Sash command shell (version 1.1.1)\n/>"
+                    // Защита от повторной отправки
+                    if (rebootScheduled) break;
+
                     if (buffer.includes('/>') || /Sash command/i.test(buffer)) {
+                        rebootScheduled = true;      // ← ставим флаг сразу
+                        state = 'REBOOTED';          // ← меняем state сразу
+
                         setTimeout(() => {
                             client.write('reboot\r\n');
-                            state = 'REBOOTED';
-                            buffer = '';
                             console.log(`✅ [PBI ${host}] Reboot отправлен`);
 
                             setTimeout(() => {
