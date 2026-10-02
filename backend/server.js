@@ -444,7 +444,7 @@ app.delete('/api/pbis/:num', async (req, res) => {
 
 // ============ Telnet reboot ============
 app.post('/api/reboot', async (req, res) => {
-    const { host, password: customPassword } = req.body;
+    const { host, password: customPassword, type } = req.body;
 
     if (!host) {
         return res.status(400).json({ error: 'Host is required' });
@@ -461,12 +461,19 @@ app.post('/api/reboot', async (req, res) => {
         } = settings.telnet || {};
 
         const password = customPassword || defaultPassword;
+        const isPbi = type === 'pbi' || password === pbiPassword;
 
-        console.log(`🔑 Используем пароль для ${host}: ${password === '12345' ? 'PBI' : 'стандартный'}`);
+        console.log(`🔑 ${host}: пароль ${isPbi ? 'PBI' : 'стандартный'}`);
 
-        await rebootDevice(host, port, user, password, timeout);
+        if (isPbi) {
+            await rebootPbi(host, port, user, password, timeout);
+        } else {
+            await rebootDevice(host, port, user, password, timeout);
+        }
+
         res.json({ success: true, message: `Device ${host} rebooted` });
     } catch (error) {
+        console.error(`❌ Reboot error for ${host}:`, error.message);
         res.status(500).json({ error: error.message });
     }
 });
@@ -526,6 +533,81 @@ function rebootDevice(host, port, user, password, timeout) {
         client.on('error', (err) => {
             cleanup();
             reject(new Error(`Telnet error: ${err.message}`));
+        });
+    });
+}
+
+function rebootPbi(host, port, user, password, timeout) {
+    return new Promise((resolve, reject) => {
+        const client = new net.Socket();
+        let buffer = '';
+        let state = 'WAIT_LOGIN'; // WAIT_LOGIN → WAIT_PASSWORD → WAIT_SHELL → REBOOTED
+        let timeoutId;
+
+        const cleanup = () => {
+            if (timeoutId) clearTimeout(timeoutId);
+            client.destroy();
+        };
+
+        timeoutId = setTimeout(() => {
+            cleanup();
+            reject(new Error('PBI connection timeout'));
+        }, timeout);
+
+        client.connect(port, host, () => {
+            console.log(`🔗 Connected to PBI ${host}:${port}`);
+        });
+
+        client.on('data', (data) => {
+            const chunk = data.toString();
+            buffer += chunk;
+
+            console.log(`📨 [PBI ${host}][${state}]:`, JSON.stringify(chunk));
+
+            switch (state) {
+                case 'WAIT_LOGIN':
+                    if (/login:/i.test(buffer)) {
+                        client.write(user + '\r\n');
+                        state = 'WAIT_PASSWORD';
+                        buffer = '';
+                    }
+                    break;
+
+                case 'WAIT_PASSWORD':
+                    if (/password:/i.test(buffer)) {
+                        client.write(password + '\r\n');
+                        state = 'WAIT_SHELL';
+                        buffer = '';
+                    }
+                    break;
+
+                case 'WAIT_SHELL':
+                    // PBI показывает: "Sash command shell (version 1.1.1)\n/>"
+                    if (buffer.includes('/>') || /Sash command/i.test(buffer)) {
+                        // Небольшая задержка, чтобы shell точно был готов
+                        setTimeout(() => {
+                            client.write('reboot\r\n');
+                            state = 'REBOOTED';
+                            buffer = '';
+
+                            setTimeout(() => {
+                                cleanup();
+                                console.log(`✅ [PBI ${host}] Reboot sent`);
+                                resolve();
+                            }, 2000);
+                        }, 300);
+                    }
+                    break;
+
+                case 'REBOOTED':
+                    // Игнорируем всё после reboot
+                    break;
+            }
+        });
+
+        client.on('error', (err) => {
+            cleanup();
+            reject(new Error(`PBI Telnet error: ${err.message}`));
         });
     });
 }

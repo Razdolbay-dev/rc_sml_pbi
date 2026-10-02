@@ -625,11 +625,10 @@ const rebootDevice = async (device) => {
   device.rebooting = true;
 
   try {
-    const password = device.password || undefined;
-
     await axios.post('/api/reboot', {
       host: device.host,
-      password: password
+      password: device.password,
+      type: device.name ? 'channel' : 'pbi'  // или отдельное поле
     });
 
     showMessage(`✅ ${device.name || 'PBI'} перезагружается`, 'success');
